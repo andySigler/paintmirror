@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <title>andysigler.com</title>
+        <style>
+            body {
+                background:black;
+                padding: 0px 0px 0px 0px;
+                margin: 0px 0px 0px 0px;
+                line-height: 30px;
+            }
+            video {
+                width:480px;
+                height:360px;
+                display:none;
+            }
+            canvas {
+                position:absolute;
+                top:0px;
+            }
+            #website{
+                display:block;
+                background-color: black;
+                color:rgb(100,100,150);
+                font-size: 20px;
+                font-family: Helvetica;
+                position:absolute;
+                left:50px;
+                top:20px;
+                padding-right: 10px;
+                border-radius: 10px;
+            }
+            #hint{
+                display:none;
+                color:rgb(100,100,150);
+                font-size: 20px;
+                font-family: Helvetica;
+                float:right;
+                margin-top:20px;
+                margin-right: 50px;
+            }
+            #Instructions{
+                position:absolute;
+                top:200px;
+                color:rgb(100,100,150);
+                font-size: 20px;
+                font-family: Helvetica;
+                margin-right:50px;
+                margin-left:25%;
+                text-indent: 0px;
+            }
+            .title{
+                font-size: 46px;
+                line-height: 100px;
+            }
+            .list{
+                margin-left: -10px;
+            }
+            .arrow-up {
+                width: 0; 
+                height: 0; 
+                border-left: 30px solid transparent;
+                border-right: 30px solid transparent;
+                border-bottom: 30px solid rgb(100,100,150);
+            }
+            #arrow{
+                float:right;
+                margin-right: 30px;
+                margin-top: -20px;
+                -webkit-animation: pointer 1s infinite;
+                -moz-animation:    pointer 1s infinite;
+                -o-animation:      pointer 1s infinite;
+                animation:         pointer 1s infinite;
+            }
+            @-webkit-keyframes pointer {
+                0%   { margin-top: 50px }
+                50% { margin-top: 10px }
+                100% { margin-top: 50px }
+            }
+            @-moz-keyframes pointer {
+                0%   { margin-top: 50px }
+                50% { margin-top: 10px }
+                100% { margin-top: 50px }
+            }
+            @-o-keyframes pointer {
+                0%   { margin-top: 50px }
+                50% { margin-top: 10px }
+                100% { margin-top: 50px }
+            }
+            @keyframes pointer {
+                0%   { margin-top: 50px }
+                50% { margin-top: 10px }
+                100% { margin-top: 50px }
+            }
+            .fade{
+                -webkit-transition: opacity 10s ease-out;
+                -moz-transition:    opacity 10s ease-out;
+                -o-transition:      opacity 10s ease-out;
+                transition:         opacity 20s ease-out;
+                opacity:0;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="Instructions">
+            <span class="title">Paint Mirror</span><br>
+            Turn on your camera, from the prompt at the top of this window
+        </div>
+        <div id="hints">
+            Move your cursor to paint. Click and drag to erase.<br>
+            Pain enough, and you'll see your reflection...
+        </div>
+        <div class="arrow-up" id="arrow"></div>
+        <!-- holds our video stream -->
+        <video id="video" autoplay="true"></video>
+        <!-- holds our latest frame to get the differences and colors of pixels -->
+        <canvas id="buffer" class"buffer"></canvas>
+        <!-- what we draw onto -->
+        <canvas id="output"></canvas>
+<!--         <div id="hints">Move your cursor to paint<br>
+            Click and drag to erase
+        </div> -->
+        <!-- what we draw onto -->
+        <div id="website">andysigler.com</div>
+        <script>
+
+            /////////////////////////////////////////////////
+            /////////////////////////////////////////////////
+            /////////////////////////////////////////////////
+
+            navigator.getUserMedia = navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.getUserMedia ||  navigator.msGetUserMedia;
+
+            window.webkitURL = window.URL || window.webkitURL || window.mozURL || window.msURL;
+
+            var video = document.getElementById("video");
+            var buffer = document.getElementById("buffer");
+            var output = document.getElementById("output");
+
+            var h = window.innerHeight;
+            var w = Math.ceil(h*1.33333);
+            var height = 600;
+            var width = Math.floor(height*1.33333);
+
+            buffer.width = width;
+            buffer.height = height;
+            output.width = buffer.width;
+            output.height = buffer.height;
+            output.style.height = h + 'px';
+            output.style.width = w + 'px';//keep aspect ratio
+
+            buffer.style.display = "none";
+
+            var streakAmount = 5;
+            var brushWidth = 20;
+            var brushSize = 160;
+
+            var feedback = .99999;
+            var feedbackSkip = 16;
+
+            var buffContext = buffer.getContext('2d');
+            var outContext = output.getContext('2d');
+
+            var buffData, prevData, outData;
+
+            var mouse = {
+                'x':undefined,
+                'y':undefined,
+                'prevX':undefined,
+                'prevY':undefined,
+                'pressed':false,
+                'moved':false
+            }
+
+            output.onmousedown = function(){
+                mouse.pressed = true;
+            }
+
+            output.onmouseup = function(){
+                mouse.pressed = false;
+            }
+
+            output.onmousemove = function(event){
+                mouse.moved = true;
+                mouse.prevX = mouse.x;
+                mouse.prevY = mouse.y;
+                mouse.x = Math.floor((event.offsetX/w)*width);
+                mouse.y = Math.floor((event.offsetY/h)*height);
+            }
+
+            /////////////////////////////////////////////////
+            /////////////////////////////////////////////////
+            /////////////////////////////////////////////////
+
+
+            window.requestAnimFrame = (function(callback) {
+                return window.requestAnimationFrame || window.webkitRequestAnimationFrame || window.mozRequestAnimationFrame || window.oRequestAnimationFrame || window.msRequestAnimationFrame ||
+                function(callback) {
+                  window.setTimeout(callback, 1000 / 60);
+                };
+            })();
+
+            /////////////////////////////////////////////////
+            /////////////////////////////////////////////////
+            /////////////////////////////////////////////////
+
+            function start() {
+
+                //document.getElementById('Instructions').style.left = Math.floor(window.innerWidth*.3)+'px';
+
+                var gotStream = function(stream) {
+                    video.src = webkitURL.createObjectURL(stream);
+
+                    //clear the text from the screen
+                    outContext.clearRect(0,0,output.width,output.height);
+
+                    document.getElementById('output').style.left = Math.floor(window.innerWidth/2-w/2)+'px';
+                    document.getElementById('Instructions').innerHTML = 'Move your cursor to paint. Click and drag to erase.<br><br> Paint enough, and you\'ll see your reflection...';
+                    document.getElementById('Instructions').className = 'fade';
+                    document.getElementById('arrow').style.display = 'none';
+
+                    prevData = outContext.getImageData(0,0,width,height); //load the display's pixels
+
+                    drawLoop(); //start the animation loop
+                }
+
+
+                if (navigator.getUserMedia) {
+                    navigator.getUserMedia({video:true}, gotStream, function(error) {
+                        alert('couldn\'t get stream, try using Chrome?');
+                        console.log(error);
+                    });
+                } else {
+                    console.log('Native device media streaming (getUserMedia) not supported in this browser.');
+                }
+            }
+
+            /////////////////////////////////////////////////
+            /////////////////////////////////////////////////
+            /////////////////////////////////////////////////
+
+            function drawLoop() {
+                if ( video.readyState === video.HAVE_ENOUGH_DATA){
+                    buffContext.save();
+                    buffContext.translate(width,0);
+                    buffContext.scale(-1,1);
+                    buffContext.drawImage(video,0,0,buffer.width,buffer.height);
+                    buffContext.restore();
+                }
+
+                if(mouse.pressed){
+                    var clearSize = width*.07;
+                    outContext.save();
+                    outContext.beginPath();
+                    outContext.arc(mouse.x,mouse.y,clearSize,0,Math.PI*2,false);
+                    outContext.clip();
+                    outContext.clearRect(0,0,width,height);
+                    outContext.restore();
+                }
+
+                else if(mouse.moved){
+                    mouse.moved = false;
+                    if(Math.random()<.8) drawBrush();
+                }
+
+                requestAnimFrame(drawLoop);
+            }
+
+            /////////////////////////////////////////////////
+            /////////////////////////////////////////////////
+            /////////////////////////////////////////////////
+
+            function drawBrush(){
+                // get the pixels from the video input
+                buffData = buffContext.getImageData(0,0,buffer.width,buffer.height);
+
+                //var tempBrushSize = brushSize*(Math.random()*.9+.1);
+                var xDiff = mouse.x-mouse.prevX;
+                var yDiff = mouse.y-mouse.prevY;
+                var tempBrushSize = Math.max(Math.sqrt(xDiff*xDiff+yDiff*yDiff)*2,20);
+                var tempBrushWidth = brushWidth*(Math.random()*.9+.1);
+
+                // var rx = randomInt(width-brushSize*2)+brushSize;
+                // var ry = randomInt(height-brushSize*2)+brushSize;
+                var rx = Math.floor(mouse.x);
+                var ry = Math.floor(mouse.y);
+                var rIndex = rx + (ry*width);
+                var r = buffData.data[rIndex*4];
+                var g = buffData.data[rIndex*4+1];
+                var b = buffData.data[rIndex*4+2];
+
+                // (0.2126*R) + (0.7152*G) + (0.0722*B)
+                var lum = (0.2126*r) + (0.7152*g) + (0.0722*b);
+
+                var thresh = 0;
+
+                if(lum>thresh || r>thresh || g>thresh || b>thresh){
+                    outContext.strokeStyle = 'rgb('+r+','+g+','+b+')';
+                      
+                    var x1 = rx;
+                    var y1 = ry;
+                    var x2 = x1 + (randomFloat(tempBrushSize*2)-tempBrushSize);
+                    var y2 = y1 + (randomFloat(tempBrushSize*2)-tempBrushSize);
+                    var x3 = x1 + (randomFloat(tempBrushSize*2)-tempBrushSize);
+                    var y3 = y1 + (randomFloat(tempBrushSize*2)-tempBrushSize);
+                    var x4 = x1 + (randomFloat(tempBrushSize*2)-tempBrushSize);
+                    var y4 = y1 + (randomFloat(tempBrushSize*2)-tempBrushSize);
+
+                    for(var i=0;i<streakAmount;i++){
+                        var _x1 = x1+(randomFloat(tempBrushWidth*2)-tempBrushWidth);
+                        var _y1 = y1+(randomFloat(tempBrushWidth*2)-tempBrushWidth);
+                        var _x2 = x2+(randomFloat(tempBrushWidth*2)-tempBrushWidth);
+                        var _y2 = y2+(randomFloat(tempBrushWidth*2)-tempBrushWidth);
+                        var _x3 = x3+(randomFloat(tempBrushWidth*2)-tempBrushWidth);
+                        var _y3 = y3+(randomFloat(tempBrushWidth*2)-tempBrushWidth);
+                        var _x4 = x4+(randomFloat(tempBrushWidth*2)-tempBrushWidth);
+                        var _y4 = y4+(randomFloat(tempBrushWidth*2)-tempBrushWidth);
+
+                        var rStrokeSize = Math.floor(Math.random()*4)+3;
+                        outContext.lineWidth = rStrokeSize*rStrokeSize/7;
+                        outContext.beginPath();
+                        outContext.moveTo(_x1,_y1);
+                        outContext.bezierCurveTo(_x2,_y2,_x3,_y3,_x4,_y4);
+                        outContext.stroke();
+                    }
+
+                    compare();
+                }
+            }
+
+            /////////////////////////////////////////////////
+            /////////////////////////////////////////////////
+            /////////////////////////////////////////////////
+
+            function compare(){
+
+                // now, load the pixels from after we drew on it
+                outData = outContext.getImageData(0,0,width,height); //load the display's pixels
+
+                var marginSize = .1;
+
+                // var yMargin = Math.floor(height*marginSize);
+                // var xMargin = Math.floor(width*marginSize);
+
+                var yMargin = 0;
+                var xMargin = 0;
+
+                //iterate through every pixel
+                for(var y=yMargin;y<height-1;y++){
+                    for(var x=xMargin;x<width-1;x++){
+                        var i = 4 * (x+(y*width));
+
+                        var outR = outData.data[i];
+                        var outG = outData.data[i+1];
+                        var outB = outData.data[i+2];
+
+                        var prevR = prevData.data[i];
+                        var prevG = prevData.data[i+1];
+                        var prevB = prevData.data[i+2];
+
+                        var buffR = buffData.data[i];
+                        var buffG = buffData.data[i+1];
+                        var buffB = buffData.data[i+2];
+
+                        var outDiffR = Math.abs(buffR-outR);
+                        var outDiffG = Math.abs(buffG-outG);
+                        var outDiffB = Math.abs(buffB-outB);
+                        var outTotalDiff = outDiffR + outDiffG + outDiffB;
+
+                        var prevDiffR = Math.abs(buffR-prevR);
+                        var prevDiffG = Math.abs(buffG-prevG);
+                        var prevDiffB = Math.abs(buffB-prevB);
+                        var prevTotalDiff = prevDiffR + prevDiffG + prevDiffB;
+
+                        if(outTotalDiff>prevTotalDiff && outData.data[i]!==0 && outData.data[i+1]!==0 && outData.data[i+2]!==0){
+                            outData.data[i] = prevR;
+                            outData.data[i+1] = prevG;
+                            outData.data[i+2] = prevB;
+                        }
+                        else{
+                            prevData.data[i] = outData.data[i];
+                            prevData.data[i+1] = outData.data[i+1];
+                            prevData.data[i+2] = outData.data[i+2];
+                        }
+                    }
+                }
+                outContext.putImageData(outData,0,0); // because this is what we see, and then draw on each frame
+            }
+
+            /////////////////////////////////////////////////
+            /////////////////////////////////////////////////
+            /////////////////////////////////////////////////
+
+            function randomFloat(low,high){
+                if(low===undefined && high===undefined){
+                    low = 0;
+                    high = 1;
+                }
+                else if(high===undefined){
+                    high = low;
+                    low = 0;
+                }
+                var diff = high-low;
+                var r = Math.random() * diff;
+                return r + low;
+            }
+
+            function randomInt(low,high){
+                if(low===undefined && high===undefined){
+                    low = 0;
+                    high = 1;
+                }
+                else if(high===undefined){
+                    high = low;
+                    low = 0;
+                }
+                var diff = high-low;
+                var r = Math.random() * diff;
+                return Math.floor(r + low);
+            }
+
+            /////////////////////////////////////////////////
+            /////////////////////////////////////////////////
+            /////////////////////////////////////////////////
+
+            window.onload = start();
+
+            /////////////////////////////////////////////////
+            /////////////////////////////////////////////////
+            /////////////////////////////////////////////////
+
+        </script>
+    </body>
+</html>
