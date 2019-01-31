@@ -58,8 +58,8 @@
                 margin-left: -10px;
             }
             .arrow-up {
-                width: 0; 
-                height: 0; 
+                width: 0;
+                height: 0;
                 border-left: 30px solid transparent;
                 border-right: 30px solid transparent;
                 border-bottom: 30px solid rgb(100,100,150);
@@ -209,7 +209,12 @@
                 //document.getElementById('Instructions').style.left = Math.floor(window.innerWidth*.3)+'px';
 
                 var gotStream = function(stream) {
-                    video.src = webkitURL.createObjectURL(stream);
+                    try {
+                        video.src = webkitURL.createObjectURL(stream);
+                    }
+                    catch (err) {
+                        video.srcObject = stream;
+                    }
 
                     //clear the text from the screen
                     outContext.clearRect(0,0,output.width,output.height);
@@ -296,7 +301,7 @@
 
                 if(lum>thresh || r>thresh || g>thresh || b>thresh){
                     outContext.strokeStyle = 'rgb('+r+','+g+','+b+')';
-                      
+
                     var x1 = rx;
                     var y1 = ry;
                     var x2 = x1 + (randomFloat(tempBrushSize*2)-tempBrushSize);
